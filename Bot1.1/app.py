@@ -11,12 +11,23 @@ filters.setup(dp)
 
 menu_message = "Меню"
 
+usersFile = open("users.txt", "r")
+joinedUsers = set()
+for line in usersFile:
+    joinedUsers.add(line.strip())
+usersFile.close()
+
 
 @dp.message_handler(commands="start")
 async def cmd_start(message: types.Message):
     markup = ReplyKeyboardMarkup(resize_keyboard=True)
 
     markup.row(menu_message)
+
+    if not str(message.chat.id) in joinedUsers:
+        usersFile = open("users.txt", "a")
+        usersFile.write(str(message.chat.id) + "\n")
+        joinedUsers.add(message.chat.id)
 
     await message.answer(
         """Привет! 👋

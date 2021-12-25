@@ -12,3 +12,4 @@ class ProductState(StatesGroup):
 class CategoryState(StatesGroup):
     title = State()
     subtitle = State()
+

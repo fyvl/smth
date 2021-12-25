@@ -13,7 +13,7 @@ from keyboards.default.markups import *
 from keyboards.inline.categories import sub_categories_markup
 from states import ProductState, CategoryState
 from aiogram.types.chat import ChatActions
-from handlers.user.menu import settings, sub_settings
+from handlers.user.menu import settings
 from loader import dp, db, bot
 from filters import IsAdmin
 from hashlib import md5
@@ -57,13 +57,13 @@ async def category_callback_handler(
     category_idx = callback_data["id"]
 
     sub_cats = db.fetchall(
-        "SELECT * FROM categories where parentID=?", callback_data["id"]
+        "SELECT * FROM categories where parentID=?", [category_idx]
     )
     if not sub_cats:
         products = db.fetchall(
             """SELECT * FROM products product
         WHERE product.tag = (SELECT title FROM categories WHERE idx=?)""",
-            (category_idx,),
+            [category_idx]
         )
 
         await query.message.delete()
@@ -73,9 +73,10 @@ async def category_callback_handler(
     else:
         markup = sub_categories_markup(sub_cats)
         markup.add(
-            InlineKeyboardButton("+ Добавить категорию", callback_data="add_sub_category")
+            InlineKeyboardButton("+ Добавить подкатегорию", callback_data="add_sub_category")
         )
         await query.message.answer("Подкатегории", reply_markup=markup)
+        await state.update_data(category_index=category_idx)
 
 
 
@@ -96,39 +97,38 @@ async def add_subcategory_callback_handler(query: CallbackQuery):
     await CategoryState.subtitle.set()
 
 
+@dp.message_handler(IsAdmin(), text=add_sub_category)
+async def process_add_product(message: Message):
+
+    await CategoryState.subtitle.set()
+
+    await message.answer("Название?")
+
+
+@dp.message_handler(IsAdmin(), state=CategoryState.subtitle)
+async def process_subadd(message: Message, state: FSMContext):
+    async with state.proxy() as data:
+        data["subtitle"] = message.text
+
+        subtitle = data["subtitle"]
+        parentID = data["category_index"]
+
+        db.query("INSERT INTO categories (title, parentID) VALUES (?, ?)", (subtitle, parentID))
+
+    await state.finish()
+    await message.answer("Готово!", reply_markup=ReplyKeyboardRemove())
+    await process_settings(message)
+
+
 @dp.message_handler(IsAdmin(), state=CategoryState.title)
 async def set_category_title_handler(message: Message, state: FSMContext):
 
     category = message.text
-    idx = md5(category.encode("utf-8")).hexdigest()
     parentID = 0
-    db.query("INSERT INTO categories VALUES (?, ?, ?)", (idx, category, parentID))
+    db.query("INSERT INTO categories (title, parentID) VALUES (?, ?)", (category, parentID))
 
     await state.finish()
     await process_settings(message)
-
-
-@dp.callback_query_handler(IsAdmin(), category_cb.filter(action="view"))
-async def set_cat_title_handler( query: CallbackQuery, callback_data: dict ):
-
-    category = query.message.text
-    idx = 10
-    db.query("INSERT INTO categories VALUES (?, ?, ?)", (idx, category, callback_data["id"]))
-
-    await process_settings(query.message)
-
-
-# @dp.callback_query_handler(IsAdmin(), category_cb.filter(), state=CategoryState.subtitle)
-# async def set_category_subtitle_handler(query: CallbackQuery, state: FSMContext, callback_data: dict):
-#
-#     category = query.message.text
-#     idx = md5(category.encode("utf-8")).hexdigest()
-#     parentID = 1
-#     db.query("INSERT INTO categories VALUES (?, ?, ?)", (idx, category, parentID))
-#
-#
-#     await state.finish()
-#     await process_settings(query.message)
 
 
 @dp.message_handler(IsAdmin(), text=delete_category)
@@ -364,5 +364,6 @@ async def show_products(m, products, category_idx):
     markup = ReplyKeyboardMarkup()
     markup.add(add_product)
     markup.add(delete_category)
+    markup.add(add_sub_category)
 
     await m.answer("Хотите что-нибудь добавить или удалить?", reply_markup=markup)
